@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 150 5% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 150 5% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 150 5% 10%;
+
+    --primary: 142 76% 36%;
+    --primary-foreground: 355 100% 100%;
+
+    --secondary: 142 33% 96%;
+    --secondary-foreground: 142 76% 29%;
+
+    --muted: 142 33% 96%;
+    --muted-foreground: 150 5% 45%;
+
+    --accent: 142 33% 96%;
+    --accent-foreground: 142 76% 29%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 150 5% 90%;
+    --input: 150 5% 90%;
+    --ring: 142 76% 36%;
+
+    --radius: 0.5rem;
+  }
+
+  .dark {
+    --background: 150 5% 10%;
+    --foreground: 0 0% 98%;
+
+    --card: 150 5% 12%;
+    --card-foreground: 0 0% 98%;
+
+    --popover: 150 5% 12%;
+    --popover-foreground: 0 0% 98%;
+
+    --primary: 142 76% 36%;
+    --primary-foreground: 355 100% 100%;
+
+    --secondary: 142 20% 20%;
+    --secondary-foreground: 0 0% 98%;
+
+    --muted: 142 20% 20%;
+    --muted-foreground: 150 5% 65%;
+
+    --accent: 142 20% 20%;
+    --accent-foreground: 0 0% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 150 5% 25%;
+    --input: 150 5% 25%;
+    --ring: 142 76% 36%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-secondary/50;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-primary/50 rounded-full transition-colors;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-primary/70;
+}
+
+/* Custom animations */
+.animate-float {
+  animation: float 3s ease-in-out infinite;
+}
+
+@keyframes float {
+  0% {
+    transform: translateY(0px);
+  }
+  50% {
+    transform: translateY(-10px);
+  }
+  100% {
+    transform: translateY(0px);
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
