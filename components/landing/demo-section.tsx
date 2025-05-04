@@ -16,7 +16,7 @@ export function DemoSection() {
       <div className="container px-4 md:px-6">
         <div className="flex flex-col items-center text-center space-y-4 mb-12">
           <div className="inline-block rounded-lg bg-brand-light px-3 py-1 text-sm text-primary">Demo</div>
-          <h2 className="text-3xl md:text-4xl font-bold tracking-tighter">See ResearchMind in Action</h2>
+          <h2 className="text-2xl md:text-3xl font-bold tracking-tighter">See ResearchMind in Action</h2>
           <p className="text-muted-foreground md:text-lg max-w-2xl">
             Watch how ResearchMind transforms your research workflow with powerful AI capabilities
           </p>

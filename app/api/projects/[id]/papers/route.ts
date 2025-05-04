@@ -7,69 +7,70 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const projectId = params.id;
-    
+    const projectId = params.id
+    if (!projectId) {
+      return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })
+    }
+
     // Initialize Supabase client
     const supabase = await createClient()
     if (!supabase) {
       return NextResponse.json({ error: 'Failed to initialize database connection' }, { status: 500 })
     }
-    
-    // Get user information
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    if (!user) {
-      return NextResponse.json({ error: 'User not authenticated' }, { status: 401 })
-    }
-    
-    // Verify the project belongs to the user
-    const { data: project, error: projectError } = await supabase
+
+    // For development, use a fixed user ID
+    const devUserId = '41263bb0-6d56-497f-8f90-2ce1cc0425cd' // Valid UUID format
+
+    // Check if project exists and belongs to user
+    const { data: projectData, error: projectError } = await supabase
       .from('projects')
-      .select('*')
+      .select('id, name')
       .eq('id', projectId)
-      .eq('user_id', user.id)
+      .eq('user_id', devUserId)
       .single()
-    
-    if (projectError || !project) {
+
+    if (projectError) {
+      console.error('Error fetching project:', projectError)
       return NextResponse.json({ error: 'Project not found or access denied' }, { status: 404 })
     }
-    
-    // Fetch project papers
-    const { data: projectPapers, error: joinError } = await supabase
+
+    // Get all papers in the project
+    const { data: projectPapers, error: papersError } = await supabase
       .from('project_papers')
-      .select('paper_id')
+      .select(`
+        paper_id,
+        papers:paper_id (
+          id,
+          title,
+          abstract,
+          authors,
+          year,
+          url,
+          is_favorite
+        )
+      `)
       .eq('project_id', projectId)
-    
-    if (joinError) {
-      console.error('Error fetching project papers:', joinError)
+
+    if (papersError) {
+      console.error('Error fetching project papers:', papersError)
       return NextResponse.json({ error: 'Failed to fetch project papers' }, { status: 500 })
     }
-    
-    if (!projectPapers || projectPapers.length === 0) {
-      return NextResponse.json({ papers: [], count: 0 })
-    }
-    
-    // Get the actual paper details
-    const paperIds = projectPapers.map(item => item.paper_id)
-    
-    const { data: papers, error: papersError } = await supabase
-      .from('papers')
-      .select('*')
-      .in('id', paperIds)
-    
-    if (papersError) {
-      console.error('Error fetching paper details:', papersError)
-      return NextResponse.json({ error: 'Failed to fetch paper details' }, { status: 500 })
-    }
-    
+
+    // Transform the response to a cleaner format
+    const papers = projectPapers.map(item => ({
+      ...item.papers,
+      project_paper_id: item.paper_id
+    }))
+
     return NextResponse.json({
-      papers: papers || [],
-      count: papers?.length || 0,
-      project
+      success: true,
+      project: projectData,
+      papers,
+      count: papers.length
     })
-    
+
   } catch (error: any) {
-    console.error('Project papers error:', error)
+    console.error('Error listing project papers:', error)
     return NextResponse.json(
       { error: error.message || 'Failed to list project papers' },
       { status: 500 }
@@ -83,90 +84,92 @@ export async function POST(
   { params }: { params: { id: string } }
 ) {
   try {
-    const projectId = params.id;
+    const projectId = params.id
+    if (!projectId) {
+      return NextResponse.json({ error: 'Project ID is required' }, { status: 400 })
+    }
+
     const body = await request.json()
     const { paperId } = body
-    
+
     if (!paperId) {
       return NextResponse.json({ error: 'Paper ID is required' }, { status: 400 })
     }
-    
+
     // Initialize Supabase client
     const supabase = await createClient()
     if (!supabase) {
       return NextResponse.json({ error: 'Failed to initialize database connection' }, { status: 500 })
     }
-    
-    // Get user information
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    if (!user) {
-      return NextResponse.json({ error: 'User not authenticated' }, { status: 401 })
-    }
-    
-    // Verify the project belongs to the user
-    const { data: project, error: projectError } = await supabase
+
+    // For development, use a fixed user ID
+    const devUserId = '41263bb0-6d56-497f-8f90-2ce1cc0425cd' // Valid UUID format
+
+    // Check if project exists and belongs to user
+    const { data: projectData, error: projectError } = await supabase
       .from('projects')
-      .select('*')
+      .select('id, name')
       .eq('id', projectId)
-      .eq('user_id', user.id)
+      .eq('user_id', devUserId)
       .single()
-    
-    if (projectError || !project) {
+
+    if (projectError) {
+      console.error('Error fetching project:', projectError)
       return NextResponse.json({ error: 'Project not found or access denied' }, { status: 404 })
     }
-    
-    // Verify the paper exists and belongs to the user
-    const { data: paper, error: paperError } = await supabase
+
+    // Check if paper exists
+    const { data: paperData, error: paperError } = await supabase
       .from('papers')
-      .select('*')
+      .select('id, title')
       .eq('id', paperId)
-      .eq('user_id', user.id)
       .single()
-    
-    if (paperError || !paper) {
-      return NextResponse.json({ error: 'Paper not found or access denied' }, { status: 404 })
+
+    if (paperError) {
+      console.error('Error fetching paper:', paperError)
+      return NextResponse.json({ error: 'Paper not found' }, { status: 404 })
     }
-    
-    // Check if paper is already in the project
-    const { data: existingJoin, error: checkError } = await supabase
+
+    // Check if relation already exists
+    const { data: existingRelation, error: relationCheckError } = await supabase
       .from('project_papers')
-      .select('*')
+      .select('id')
       .eq('project_id', projectId)
       .eq('paper_id', paperId)
       .single()
-    
-    if (existingJoin) {
+
+    if (existingRelation) {
       return NextResponse.json({ 
-        success: true,
+        success: true, 
         message: 'Paper is already in this project',
         alreadyExists: true
       })
     }
-    
+
     // Add paper to project
-    const { data: projectPaper, error: joinError } = await supabase
+    const { data: relation, error: addError } = await supabase
       .from('project_papers')
       .insert({
         project_id: projectId,
         paper_id: paperId,
-        created_at: new Date().toISOString(),
+        created_at: new Date().toISOString()
       })
       .select()
       .single()
-    
-    if (joinError) {
-      console.error('Error adding paper to project:', joinError)
+
+    if (addError) {
+      console.error('Error adding paper to project:', addError)
       return NextResponse.json({ error: 'Failed to add paper to project' }, { status: 500 })
     }
-    
+
     return NextResponse.json({
       success: true,
-      projectPaper
+      message: `Paper "${paperData.title}" added to project "${projectData.name}"`,
+      relation
     })
-    
+
   } catch (error: any) {
-    console.error('Add paper to project error:', error)
+    console.error('Error adding paper to project:', error)
     return NextResponse.json(
       { error: error.message || 'Failed to add paper to project' },
       { status: 500 }

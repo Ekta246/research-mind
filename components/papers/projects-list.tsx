@@ -93,7 +93,11 @@ export function ProjectsList({ selectedPaper }: ProjectsListProps) {
         body: JSON.stringify(newProject)
       })
 
-      if (!response.ok) throw new Error('Failed to create project')
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create project')
+      }
       
       await fetchProjects()
       setNewProject({ name: "", description: "" })
@@ -106,7 +110,7 @@ export function ProjectsList({ selectedPaper }: ProjectsListProps) {
       console.error('Error creating project:', error)
       toast({
         title: "Failed to create project",
-        description: "There was an error creating your project",
+        description: error instanceof Error ? error.message : "There was an error creating your project",
         variant: "destructive"
       })
     } finally {

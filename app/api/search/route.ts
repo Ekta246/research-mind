@@ -133,117 +133,190 @@ function buildPaperUrls(paper: SemanticScholarPaper): { url: string, pdfUrl: str
   return { url, pdfUrl };
 }
 
+// Simple in-memory cache for search results
+// Note: This will reset when the server restarts
+type CacheEntry = {
+  timestamp: number;
+  data: any;
+}
+
+const CACHE_EXPIRY = 30 * 60 * 1000; // 30 minutes in milliseconds
+const searchCache = new Map<string, CacheEntry>();
+
+// Clear expired cache entries
+function clearExpiredCache() {
+  const now = Date.now();
+  for (const [key, entry] of searchCache.entries()) {
+    if (now - entry.timestamp > CACHE_EXPIRY) {
+      searchCache.delete(key);
+    }
+  }
+}
+
+// Check cache for query
+function getCachedResults(query: string, maxResults: number): any | null {
+  clearExpiredCache();
+  const cacheKey = `${query}:${maxResults}`;
+  const cached = searchCache.get(cacheKey);
+  
+  if (cached && (Date.now() - cached.timestamp < CACHE_EXPIRY)) {
+    console.log(`Using cached search results for "${query}"`);
+    return cached.data;
+  }
+  
+  return null;
+}
+
+// Save results to cache
+function cacheResults(query: string, maxResults: number, data: any) {
+  const cacheKey = `${query}:${maxResults}`;
+  searchCache.set(cacheKey, {
+    timestamp: Date.now(),
+    data
+  });
+}
+
 export async function GET(request: NextRequest) {
   try {
-    // Get query parameters
-    const searchParams = request.nextUrl.searchParams
-    const query = searchParams.get('query')
-    // Always request more results than we need for better relevance filtering
-    const maxResults = parseInt(searchParams.get('max_results') || '20')
-    const offset = parseInt(searchParams.get('offset') || '0')
-    const finalResultCount = 8; // We'll return the top 8 most relevant results
+    const url = new URL(request.url)
+    const query = url.searchParams.get('query') || ''
+    const maxResults = parseInt(url.searchParams.get('max_results') || '10')
+    const offset = parseInt(url.searchParams.get('offset') || '0')
     
-    if (!query) {
-      return NextResponse.json(
-        { error: 'Query parameter is required' },
-        { status: 400 }
-      )
+    if (!query.trim()) {
+      return NextResponse.json({ error: 'Query is required' }, { status: 400 })
     }
-
-    // Initialize Supabase client to check existing papers
+    
+    // Check cache first
+    const cachedData = getCachedResults(query, maxResults);
+    if (cachedData) {
+      return NextResponse.json(cachedData);
+    }
+    
+    // Initialize Supabase client
     const supabase = await createClient()
     if (!supabase) {
-      return NextResponse.json(
-        { error: 'Failed to initialize database connection' },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: 'Failed to initialize database connection' }, { status: 500 })
     }
-
-    // First, check if we have matching papers in our database
-    const { data: existingPapers, error: dbError } = await supabase
+    
+    // For development/demo, use a fixed user ID
+    const userId = 'dev-user' 
+    
+    // Try to fetch existing papers from our database first
+    let papers: FormattedPaper[] = []
+    let existingPapers = null
+    
+    const { data: dbPapers, error: dbError } = await supabase
       .from('papers')
       .select('*')
-      .textSearch('title', query, { 
-        type: 'websearch',
-        config: 'english' 
-      })
-      .limit(maxResults)
+      .eq('user_id', userId)
+      .or(`title.ilike.%${query}%,abstract.ilike.%${query}%`)
+      .order('created_at', { ascending: false })
     
     if (dbError) {
-      console.error('Database search error:', dbError)
-      // Continue with API search even if DB search fails
+      console.error('Error fetching papers from DB:', dbError)
+    } else {
+      existingPapers = dbPapers
+      papers = [...papers, ...dbPapers]
     }
     
-    let papers: FormattedPaper[] = [];
+    // Calculate how many external results we need
+    const finalResultCount = Math.min(maxResults, 4)
+    const externalResultsNeeded = finalResultCount - papers.length
     
-    // Process existing papers if available
-    if (existingPapers && existingPapers.length > 0) {
-      // Convert database results to FormattedPaper
-      papers = existingPapers.map(paper => ({
-        id: paper.id,
-        title: paper.title,
-        abstract: paper.abstract,
-        authors: paper.authors.join(', '),
-        year: paper.year,
-        tags: paper.tags || [],
-        source: paper.source || 'Database',
-        url: paper.url || '',
-        pdf_url: paper.pdf_url,
-        relevance_score: 0, // Will calculate this below
-        citations: paper.citations || 0,
-        journal: paper.journal || '',
-      }));
-    }
-
-    // If we don't have enough results, search Semantic Scholar API
-    if (papers.length < finalResultCount) {
+    // Only fetch from external API if we need more results
+    if (externalResultsNeeded > 0) {
       const semanticScholarUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=${maxResults}&offset=${offset}&fields=title,authors,year,abstract,url,venue,citationCount,openAccessPdf`
       
-      const response = await fetch(semanticScholarUrl, {
-        headers: {
-          'Accept': 'application/json',
-          // Note: For production use, you should register for an API key
-          // 'x-api-key': process.env.SEMANTIC_SCHOLAR_API_KEY,
-        },
-      })
-
-      if (!response.ok) {
-        throw new Error(`Semantic Scholar API responded with status: ${response.status}`)
-      }
-
-      const data = await response.json() as SemanticScholarResponse
+      // Add retry logic for API calls with exponential backoff
+      let retries = 3;
+      let apiData = null;
+      let waitTime = 1000; // Start with 1 second delay
       
-      // Format the response to match our paper schema
-      const apiPapers: FormattedPaper[] = data.data.map((paper: SemanticScholarPaper) => {
-        // Format authors 
-        const authors = paper.authors 
-          ? paper.authors.map((author) => author.name).join(', ')
-          : 'Unknown'
-        
-        // Generate better URLs for the paper and PDF
-        const { url, pdfUrl } = buildPaperUrls(paper);
-        
-        // Create a paper object matching our schema
-        return {
-          id: paper.paperId,
-          title: paper.title || 'Unknown Title',
-          abstract: paper.abstract || 'No abstract available',
-          authors,
-          year: paper.year || new Date().getFullYear(),
-          tags: [], // Semantic Scholar doesn't provide tags
-          source: 'Semantic Scholar',
-          url: url,
-          pdf_url: pdfUrl,
-          relevance_score: 0, // Will calculate this below
-          citations: paper.citationCount || 0,
-          journal: paper.venue || 'Unknown',
+      while (retries > 0 && !apiData) {
+        try {
+          const response = await fetch(semanticScholarUrl, {
+            headers: {
+              'Accept': 'application/json',
+              // Note: For production use, you should register for an API key
+              // 'x-api-key': process.env.SEMANTIC_SCHOLAR_API_KEY,
+            },
+            // Add a cache policy for the fetch request
+            cache: 'force-cache',
+          });
+          
+          if (!response.ok) {
+            console.warn(`Semantic Scholar API responded with status: ${response.status}. Retries left: ${retries-1}`);
+            if (response.status === 429) {
+              // Rate limit - wait longer before retrying with exponential backoff
+              console.log(`Rate limited. Waiting ${waitTime/1000} seconds before retry`);
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+              waitTime *= 2; // Double the wait time for next retry
+            } else {
+              // For other errors, use standard backoff
+              await new Promise(resolve => setTimeout(resolve, waitTime));
+            }
+            retries--;
+            if (retries === 0) {
+              // On final retry, just continue without throwing - use what we have
+              console.error(`Failed to fetch from Semantic Scholar after multiple retries. Status: ${response.status}`);
+              break;
+            }
+            continue;
+          }
+          
+          apiData = await response.json() as SemanticScholarResponse;
+          break;
+        } catch (error) {
+          console.error("Error fetching from Semantic Scholar:", error);
+          retries--;
+          if (retries === 0) {
+            // On final retry, just continue without throwing
+            break;
+          }
+          // Wait before retrying with exponential backoff
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+          waitTime *= 2;
         }
-      })
+      }
       
-      // Combine results, deduplicating by ID
-      const existingIds = new Set(papers.map(p => p.id))
-      const newPapers = apiPapers.filter(p => !existingIds.has(p.id))
-      papers = [...papers, ...newPapers]
+      // If we have API data, format it and add to results
+      if (apiData) {
+        // Format the response to match our paper schema
+        const apiPapers: FormattedPaper[] = apiData.data.map((paper: SemanticScholarPaper) => {
+          // Format authors 
+          const authors = paper.authors 
+            ? paper.authors.map((author) => author.name).join(', ')
+            : 'Unknown'
+          
+          // Generate better URLs for the paper and PDF
+          const { url, pdfUrl } = buildPaperUrls(paper);
+          
+          // Create a paper object matching our schema
+          return {
+            id: paper.paperId,
+            title: paper.title || 'Unknown Title',
+            abstract: paper.abstract || 'No abstract available',
+            authors,
+            year: paper.year || new Date().getFullYear(),
+            tags: [], // Semantic Scholar doesn't provide tags
+            source: 'Semantic Scholar',
+            url: url,
+            pdf_url: pdfUrl,
+            relevance_score: 0, // Will calculate this below
+            citations: paper.citationCount || 0,
+            journal: paper.venue || 'Unknown',
+          }
+        })
+        
+        // Combine results, deduplicating by ID
+        const existingIds = new Set(papers.map(p => p.id))
+        const newPapers = apiPapers.filter(p => !existingIds.has(p.id))
+        papers = [...papers, ...newPapers]
+      } else {
+        // Log an informational message and continue - don't fail the whole request
+        console.info("Couldn't retrieve data from Semantic Scholar API - using local data only");
+      }
     }
     
     // Calculate relevance scores for all papers
@@ -258,12 +331,15 @@ export async function GET(request: NextRequest) {
     const topPapers = papers.slice(0, finalResultCount);
     
     // If the user is authenticated, save new papers to the database
-    const { data: { user } } = await supabase.auth.getUser()
-    
-    if (user) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      
+      // Use the dev-user ID if no authenticated user
+      const userId = user?.id || 'dev-user';
+      
       const paperInserts = topPapers.map(paper => ({
         ...paper,
-        user_id: user.id,
+        user_id: userId,
         is_favorite: false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -280,15 +356,27 @@ export async function GET(request: NextRequest) {
       if (insertError) {
         console.error('Error saving papers to database:', insertError)
       }
+    } catch (error) {
+      console.error('Error saving papers:', error);
+      // Continue even if saving fails
     }
-
-    return NextResponse.json({
+    
+    // Prepare the response with source information
+    const hasSemanticScholarData = papers.some(p => p.source === 'Semantic Scholar');
+    const response = {
       papers: topPapers,
       total: papers.length,
       itemsPerPage: finalResultCount,
       startIndex: offset,
-      source: existingPapers && existingPapers.length > 0 ? 'combined' : 'semantic_scholar'
-    })
+      source: hasSemanticScholarData ? 
+        (existingPapers && existingPapers.length > 0 ? 'combined' : 'semantic_scholar') : 
+        'local_only'
+    };
+    
+    // Cache the results
+    cacheResults(query, maxResults, response);
+    
+    return NextResponse.json(response);
   } catch (error: any) {
     console.error('Search error:', error)
     return NextResponse.json(

@@ -4,16 +4,22 @@ import { createClient } from "@/utils/supabase/server"
 import { revalidatePath } from "next/cache"
 import { redirect } from "next/navigation"
 
-export async function signIn(formData: FormData) {
-  const supabase = createClient()
+export async function signIn(email: string, password: string) {
+  const supabase = await createClient()
+  if (!supabase) {
+    console.error('Supabase client not initialized')
+    return
+  }
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email: formData.get("email") as string,
-    password: formData.get("password") as string,
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email,
+    password: password,
   })
 
   if (error) {
-    return { error: error.message }
+    console.error('Sign-in error:', error)
+  } else {
+    console.log('Sign-in successful:', data)
   }
 
   revalidatePath("/", "layout")
@@ -21,7 +27,7 @@ export async function signIn(formData: FormData) {
 }
 
 export async function signUp(formData: FormData) {
-  const supabase = createClient()
+  const supabase = await createClient()
 
   const { error } = await supabase.auth.signUp({
     email: formData.get("email") as string,
@@ -53,7 +59,7 @@ export async function signUp(formData: FormData) {
 }
 
 export async function signOut() {
-  const supabase = createClient()
+  const supabase = await createClient()
   await supabase.auth.signOut()
   revalidatePath("/", "layout")
   redirect("/")

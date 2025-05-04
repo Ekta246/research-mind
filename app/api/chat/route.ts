@@ -31,19 +31,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to initialize database connection' }, { status: 500 })
     }
     
+    // DEVELOPMENT: Skip authentication check
     // Get user information
-    const { data: { user } } = await supabase.auth.getUser()
+    // const { data: { user } } = await supabase.auth.getUser()
     
-    if (!user) {
-      return NextResponse.json({ error: 'User not authenticated' }, { status: 401 })
-    }
+    // if (!user) {
+    //   return NextResponse.json({ error: 'User not authenticated' }, { status: 401 })
+    // }
+    
+    // For development, use a fixed user ID
+    const user = { id: 'dev-user' };
     
     // Add a system message if not already present
     let chatMessages: ChatMessage[] = [...messages]
     if (!chatMessages.some(msg => msg.role === 'system')) {
       chatMessages.unshift({
         role: 'system',
-        content: 'You are a helpful research assistant specializing in academic papers and scientific research. Help users understand complex research topics, find relevant papers, and explain scientific concepts clearly Also, give other sources to the user if you don\'t have the answer to the query'
+        content: 'You should be able to grab resources online also and summarize the content base on the abstract and literature of the research.You are a helpful research assistant specializing in academic papers and scientific research. Help users understand complex research topics, find relevant papers, and explain scientific concepts clearly Also, give other sources to the user if you don\'t have the answer to the query'
         
       })
     }

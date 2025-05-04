@@ -6,7 +6,8 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
-import { Search, Filter, Calendar, Tag, Users } from "lucide-react"
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert"
+import { Search, Filter, Calendar, Tag, Users, AlertTriangle } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { PaperSearchResults } from "@/components/search/paper-search-results"
 import { useToast } from "@/components/ui/use-toast"
@@ -22,6 +23,7 @@ export default function SearchPage() {
   const [query, setQuery] = useState("")
   const [isSearching, setIsSearching] = useState(false)
   const [cache, setCache] = useState<Record<string, SearchCache>>({})
+  const [isRateLimited, setIsRateLimited] = useState(false)
   const { toast } = useToast()
 
   // Load cache from localStorage on component mount
@@ -59,7 +61,7 @@ export default function SearchPage() {
     setIsSearching(true)
 
     try {
-      // Real API call to arXiv
+      // Real API call to search endpoint
       const response = await fetch(`/api/search?query=${encodeURIComponent(query)}`)
       
       if (!response.ok) {
@@ -67,6 +69,18 @@ export default function SearchPage() {
       }
       
       const data = await response.json()
+      
+      // Check if we received limited results due to rate limiting
+      if (data.source === 'local_only') {
+        setIsRateLimited(true);
+        toast({
+          title: "Limited Results Available",
+          description: "Semantic Scholar API is rate limited. Using cached results only.",
+          variant: "destructive"
+        });
+      } else {
+        setIsRateLimited(false);
+      }
       
       // Save results to cache
       setCache(prevCache => ({
@@ -230,6 +244,17 @@ export default function SearchPage() {
           </div>
         </CardContent>
       </Card>
+
+      {isRateLimited && (
+        <Alert variant="destructive" className="mb-4">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>API Rate Limit Reached</AlertTitle>
+          <AlertDescription>
+            The Semantic Scholar API is currently rate limited. Results are being served from local cache only.
+            Try again in a few minutes or use more specific search terms.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <PaperSearchResults 
         query={query} 

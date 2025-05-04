@@ -14,8 +14,31 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
+import { ReactNode } from "react"
 
-export function DashboardHeader() {
+interface DashboardHeaderProps {
+  heading?: string
+  description?: string
+  icon?: ReactNode
+  children?: ReactNode
+}
+
+export function DashboardHeader({ heading, description, icon, children }: DashboardHeaderProps) {
+  // If being used as a page header with heading, description and icon
+  if (heading) {
+    return (
+      <div className="flex flex-col gap-1 pb-5">
+        <div className="flex items-center gap-2">
+          {icon && <div className="text-primary">{icon}</div>}
+          <h1 className="text-2xl font-bold tracking-tight">{heading}</h1>
+        </div>
+        {description && <p className="text-muted-foreground">{description}</p>}
+        {children}
+      </div>
+    )
+  }
+
+  // Otherwise, used as the main app header (navigation bar)
   return (
     <header className="sticky top-0 z-30 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-14 items-center">

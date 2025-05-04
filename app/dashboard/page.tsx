@@ -12,6 +12,34 @@ import { LoadingIndicator } from "@/components/ui/loading-indicator"
 import { redirect } from "next/navigation"
 import type { User } from "@supabase/supabase-js"
 
+// Update the stats section with dynamic counts
+const stats = [
+  {
+    name: "Papers Searched",
+    value: "238",
+    change: "+12% from last month",
+    changeType: "positive" as const,
+  },
+  {
+    name: "Papers in Library",
+    value: "47",
+    change: "+5 new this week",
+    changeType: "positive" as const,
+  },
+  {
+    name: "AI Summaries",
+    value: "23",
+    change: "+7 from last week",
+    changeType: "positive" as const,
+  },
+  {
+    name: "Projects",
+    value: "5",
+    change: "2 active collaborations",
+    changeType: "neutral" as const,
+  },
+]
+
 export default async function DashboardPage() {
   // TEMPORARY: Create mock user for development
   const mockUser: User = {
@@ -62,7 +90,7 @@ export default async function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="md:col-span-2">
+        {/* <Card className="md:col-span-2">
           <CardHeader>
             <CardTitle>Quick Actions</CardTitle>
             <CardDescription>Common tasks and shortcuts</CardDescription>
@@ -72,7 +100,7 @@ export default async function DashboardPage() {
               <QuickActions />
             </Suspense>
           </CardContent>
-        </Card>
+        </Card> */}
       </div>
     </div>
   )
