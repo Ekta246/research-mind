@@ -16,6 +16,8 @@ export function PaperCard({ paper }: PaperCardProps) {
   const [summaryDrawerOpen, setSummaryDrawerOpen] = useState(false);
   const { toast } = useToast();
   const { isBookmarked, toggleBookmark } = useBookmarks();
+  const [isSummarizing, setIsSummarizing] = useState(false);
+  const [summary, setSummary] = useState('');
   
   const handleOpenPaper = (event: React.MouseEvent) => {
     // Make sure we have a URL to open
@@ -55,6 +57,47 @@ export function PaperCard({ paper }: PaperCardProps) {
   
   const handleToggleBookmark = async () => {
     await toggleBookmark(paper);
+  };
+  
+  const handleSummarize = async () => {
+    if (summary) {
+      // If we already have a summary, just show it again
+      onShowSummary(summary);
+      return;
+    }
+    
+    setIsSummarizing(true);
+    
+    try {
+      // Get paper content - use abstract if available, otherwise title + metadata
+      const paperContent = paper.abstract || 
+        `Title: ${paper.title}\nAuthors: ${paper.authors}\nYear: ${paper.year}\nSource: ${paper.source}`;
+      
+      const response = await fetch('/api/papers/summarize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ paperContent }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate summary');
+      }
+      
+      const { summary } = await response.json();
+      setSummary(summary);
+      onShowSummary(summary);
+    } catch (error) {
+      console.error('Error generating summary:', error);
+      toast({
+        title: 'Summarization failed',
+        description: 'Could not generate summary for this paper.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSummarizing(false);
+    }
   };
   
   return (
@@ -122,22 +165,22 @@ export function PaperCard({ paper }: PaperCardProps) {
             )}
 
             <div className="mt-4 flex gap-2">
+              {paper.pdf_url && (
+                <Button 
+                  onClick={() => window.open(paper.pdf_url, '_blank')}
+                  variant="outline"
+                  size="sm"
+                >
+                  View PDF
+                </Button>
+              )}
               <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleOpenPDF}
-                disabled={!paper.pdf_url}
+                onClick={handleSummarize}
+                variant="outline"
+                size="sm"
+                disabled={isSummarizing}
               >
-                <FileText className="mr-2 h-4 w-4" />
-                View PDF
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleOpenSummary}
-              >
-                <BookOpen className="mr-2 h-4 w-4" />
-                Read Summary
+                {isSummarizing ? 'Summarizing...' : 'Summarize'}
               </Button>
             </div>
           </div>
