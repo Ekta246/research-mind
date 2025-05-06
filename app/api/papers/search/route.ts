@@ -5,27 +5,28 @@ const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000; // 1 second
 
 async function fetchWithRetry(url: string, options: RequestInit, retries = MAX_RETRIES, delay = INITIAL_RETRY_DELAY) {
-  try {
-    const response = await fetch(url, options);
-    
-    if (response.status === 429 && retries > 0) {
-      console.log(`Rate limited. Waiting ${delay/1000} seconds before retry. Retries left: ${retries}`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return fetchWithRetry(url, options, retries - 1, delay * 2);
+  const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+  
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+      
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('retry-after') || 5;
+        console.log(`Rate limited. Waiting ${retryAfter}s before retry ${attempt+1}/${retries}`);
+        await wait(retryAfter * 1000);
+        continue;
+      }
+      
+      if (!response.ok) {
+        throw new Error(`Semantic Scholar API responded with status: ${response.status}`);
+      }
+      
+      return response;
+    } catch (err) {
+      if (attempt === retries) throw err;
+      await wait(2000 * (attempt + 1)); // Exponential backoff
     }
-    
-    if (!response.ok) {
-      throw new Error(`Semantic Scholar API responded with status: ${response.status}`);
-    }
-    
-    return response;
-  } catch (error) {
-    if (retries > 0 && error instanceof Error && error.message.includes('429')) {
-      console.log(`Error: ${error.message}. Retrying in ${delay/1000} seconds. Retries left: ${retries}`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-      return fetchWithRetry(url, options, retries - 1, delay * 2);
-    }
-    throw error;
   }
 }
 
@@ -137,6 +138,8 @@ export async function GET(request: Request) {
       return NextResponse.json({ papers: [] });
     }
     
+    // Commenting out Semantic Scholar call due to rate limiting issues
+    /*
     const offset = (page - 1) * limit;
     
     // Try Semantic Scholar first with a 3-second timeout
@@ -144,13 +147,17 @@ export async function GET(request: Request) {
       const timeout = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Semantic Scholar request timed out')), 3000)
       );
+      const headers = {
+        "Accept": "application/json"
+      };
+      
+      if (process.env.SEMANTIC_SCHOLAR_API_KEY) {
+        headers["x-api-key"] = process.env.SEMANTIC_SCHOLAR_API_KEY;
+      }
+      
       const semanticPromise = fetchWithRetry(
         `${SEMANTIC_SCHOLAR_API_URL}?query=${encodeURIComponent(query)}&offset=${offset}&limit=${limit}`,
-        {
-          headers: {
-            "Accept": "application/json"
-          }
-        }
+        { headers }
       );
       const result = await Promise.race([semanticPromise, timeout]);
       
@@ -178,8 +185,9 @@ export async function GET(request: Request) {
       console.error('Semantic Scholar error:', error);
       // Continue to fallbacks
     }
+    */
     
-    // Parallel fallback to arXiv and PubMed
+    // Using arXiv and PubMed as primary sources
     try {
       const [arxivResults, pubmedResults] = await Promise.all([
         searchArxiv(query),
@@ -187,18 +195,21 @@ export async function GET(request: Request) {
       ]);
       
       const combinedResults = [
-        ...arxivResults.map(paper => ({ ...paper, source: 'arxiv' })),
-        ...pubmedResults.map(paper => ({ ...paper, source: 'pubmed' }))
+        ...arxivResults.map(paper => ({ ...paper, source: 'arXiv' })),
+        ...pubmedResults.map(paper => ({ ...paper, source: 'PubMed' }))
       ];
       
       return NextResponse.json({ 
         papers: combinedResults,
         source: 'combined', 
-        note: 'Results from fallback sources (arXiv, PubMed)' 
+        note: 'Results from arXiv and PubMed' 
       });
     } catch (error) {
-      console.error('Fallback search error:', error);
-      throw new Error('All search services failed');
+      console.error('Search error:', error);
+      return NextResponse.json(
+        { error: "Failed to search papers" },
+        { status: 500 }
+      );
     }
   } catch (error) {
     console.error("Search error:", error);

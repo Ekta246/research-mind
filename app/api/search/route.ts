@@ -226,6 +226,8 @@ export async function GET(request: NextRequest) {
     
     // Only fetch from external API if we need more results
     if (externalResultsNeeded > 0) {
+      // COMMENTED OUT SEMANTIC SCHOLAR API CALLS
+      /*
       const semanticScholarUrl = `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(query)}&limit=${maxResults}&offset=${offset}&fields=title,authors,year,abstract,url,venue,citationCount,openAccessPdf`
       
       // Add retry logic for API calls with exponential backoff
@@ -248,140 +250,205 @@ export async function GET(request: NextRequest) {
           if (!response.ok) {
             console.warn(`Semantic Scholar API responded with status: ${response.status}. Retries left: ${retries-1}`);
             if (response.status === 429) {
-              // Rate limit - wait longer before retrying with exponential backoff
-              console.log(`Rate limited. Waiting ${waitTime/1000} seconds before retry`);
+              // Rate limited, wait progressively longer
               await new Promise(resolve => setTimeout(resolve, waitTime));
-              waitTime *= 2; // Double the wait time for next retry
-            } else {
-              // For other errors, use standard backoff
-              await new Promise(resolve => setTimeout(resolve, waitTime));
+              waitTime *= 2; // Exponential backoff
+              retries--;
+              continue;
             }
-            retries--;
-            if (retries === 0) {
-              // On final retry, just continue without throwing - use what we have
-              console.error(`Failed to fetch from Semantic Scholar after multiple retries. Status: ${response.status}`);
-              break;
-            }
-            continue;
+            throw new Error(`Semantic Scholar API responded with status: ${response.status}`);
           }
           
-          apiData = await response.json() as SemanticScholarResponse;
-          break;
+          apiData = await response.json();
         } catch (error) {
-          console.error("Error fetching from Semantic Scholar:", error);
+          console.error('Error fetching from Semantic Scholar:', error);
           retries--;
-          if (retries === 0) {
-            // On final retry, just continue without throwing
-            break;
+          if (retries > 0) {
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            waitTime *= 2;
           }
-          // Wait before retrying with exponential backoff
-          await new Promise(resolve => setTimeout(resolve, waitTime));
-          waitTime *= 2;
         }
       }
       
-      // If we have API data, format it and add to results
-      if (apiData) {
-        // Format the response to match our paper schema
-        const apiPapers: FormattedPaper[] = apiData.data.map((paper: SemanticScholarPaper) => {
-          // Format authors 
-          const authors = paper.authors 
-            ? paper.authors.map((author) => author.name).join(', ')
-            : 'Unknown'
-          
-          // Generate better URLs for the paper and PDF
+      if (apiData && apiData.data && apiData.data.length > 0) {
+        // Format papers from the Semantic Scholar API
+        const semanticScholarPapers = apiData.data.map((paper: SemanticScholarPaper): FormattedPaper => {
           const { url, pdfUrl } = buildPaperUrls(paper);
           
-          // Create a paper object matching our schema
+          // Calculate relevance score for this paper
+          const relevanceScore = calculateRelevanceScore(query, {
+            title: paper.title,
+            abstract: paper.abstract || '',
+            year: paper.year
+          });
+          
+          // Check if paper is already in our database
+          const existingPaper = existingPapers?.find(p => 
+            p.id === paper.paperId || 
+            (p.title === paper.title && p.authors === paper.authors?.map(a => a.name).join(', '))
+          );
+          
           return {
             id: paper.paperId,
-            title: paper.title || 'Unknown Title',
-            abstract: paper.abstract || 'No abstract available',
-            authors,
-            year: paper.year || new Date().getFullYear(),
-            tags: [], // Semantic Scholar doesn't provide tags
-            source: 'Semantic Scholar',
+            title: paper.title,
+            abstract: paper.abstract || "",
+            authors: paper.authors?.map(author => author.name).join(", ") || "",
+            year: paper.year || 0,
+            tags: [],
+            source: "Semantic Scholar",
             url: url,
             pdf_url: pdfUrl,
-            relevance_score: 0, // Will calculate this below
+            relevance_score: relevanceScore,
             citations: paper.citationCount || 0,
-            journal: paper.venue || 'Unknown',
-          }
-        })
+            journal: paper.venue || "",
+          };
+        });
         
-        // Combine results, deduplicating by ID
-        const existingIds = new Set(papers.map(p => p.id))
-        const newPapers = apiPapers.filter(p => !existingIds.has(p.id))
-        papers = [...papers, ...newPapers]
-      } else {
-        // Log an informational message and continue - don't fail the whole request
-        console.info("Couldn't retrieve data from Semantic Scholar API - using local data only");
+        // Add to our results
+        papers = [...papers, ...semanticScholarPapers];
+      }
+      */
+      
+      // NEW CODE: Use arXiv and PubMed APIs instead
+      try {
+        // Call arXiv API
+        const formattedQuery = encodeURIComponent(query.replace(/\s+/g, '+'));
+        const arxivUrl = `http://export.arxiv.org/api/query?search_query=all:${formattedQuery}&start=0&max_results=${maxResults}`;
+        
+        const arxivResponse = await fetch(arxivUrl);
+        if (arxivResponse.ok) {
+          const arxivData = await arxivResponse.text();
+          
+          // Parse arXiv XML response
+          const arxivPapers: FormattedPaper[] = [];
+          const entries = arxivData.split('<entry>').slice(1);
+          
+          for (const entry of entries) {
+            const title = entry.match(/<title>([\s\S]*?)<\/title>/)?.[1]?.trim() || '';
+            const abstract = entry.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]?.trim() || '';
+            const published = entry.match(/<published>(.*?)<\/published>/)?.[1] || '';
+            const year = published ? new Date(published).getFullYear() : 0;
+            const id = entry.match(/<id>(.*?)<\/id>/)?.[1]?.split('/').pop() || '';
+            
+            // Extract authors
+            const authorRegex = /<author>([\s\S]*?)<\/author>/g;
+            const authorMatches = [...entry.matchAll(authorRegex)];
+            const authors = authorMatches
+              .map(match => match[1].match(/<name>(.*?)<\/name>/)?.[1] || '')
+              .filter(Boolean)
+              .join(', ');
+            
+            // Calculate relevance score
+            const relevanceScore = calculateRelevanceScore(query, {
+              title,
+              abstract,
+              year
+            });
+            
+            arxivPapers.push({
+              id,
+              title,
+              abstract,
+              authors,
+              year,
+              tags: [],
+              source: "arXiv",
+              url: entry.match(/<id>(.*?)<\/id>/)?.[1] || '',
+              pdf_url: entry.match(/<link title="pdf" href="(.*?)"/)?.[1] || null,
+              relevance_score: relevanceScore,
+              citations: 0,
+              journal: "arXiv",
+            });
+          }
+          
+          // Add to our results
+          papers = [...papers, ...arxivPapers];
+        }
+        
+        // Call PubMed API
+        const pubmedSearchUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi?db=pubmed&term=${encodeURIComponent(query)}&retmode=json&retmax=${maxResults}`;
+        
+        const pubmedSearchResponse = await fetch(pubmedSearchUrl);
+        if (pubmedSearchResponse.ok) {
+          const pubmedSearchData = await pubmedSearchResponse.json();
+          const ids = pubmedSearchData.esearchresult.idlist;
+          
+          if (ids && ids.length > 0) {
+            // Fetch details for those IDs
+            const detailsUrl = `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esummary.fcgi?db=pubmed&id=${ids.join(',')}&retmode=json`;
+            
+            const detailsResponse = await fetch(detailsUrl);
+            if (detailsResponse.ok) {
+              const detailsData = await detailsResponse.json();
+              
+              const pubmedPapers: FormattedPaper[] = [];
+              for (const id of ids) {
+                const item = detailsData.result[id];
+                if (!item) continue;
+                
+                const title = item.title || '';
+                const authors = item.authors?.map((a: any) => a.name).join(', ') || '';
+                const year = item.pubdate?.split(' ')?.[0] || 0;
+                
+                // Calculate relevance score
+                const relevanceScore = calculateRelevanceScore(query, {
+                  title,
+                  abstract: '',  // PubMed summary doesn't include abstract
+                  year: parseInt(year)
+                });
+                
+                pubmedPapers.push({
+                  id: item.uid,
+                  title,
+                  abstract: '', // PubMed summary doesn't include abstract
+                  authors,
+                  year: parseInt(year) || 0,
+                  tags: [],
+                  source: "PubMed",
+                  url: `https://pubmed.ncbi.nlm.nih.gov/${item.uid}/`,
+                  pdf_url: null,
+                  relevance_score: relevanceScore,
+                  citations: 0,
+                  journal: item.fulljournalname || '',
+                });
+              }
+              
+              // Add to our results
+              papers = [...papers, ...pubmedPapers];
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching external papers:', error);
       }
     }
     
-    // Calculate relevance scores for all papers
-    for (const paper of papers) {
-      paper.relevance_score = calculateRelevanceScore(query, paper);
-    }
+    // Deduplicate papers based on ID
+    const uniqueIds = new Set();
+    papers = papers.filter(paper => {
+      if (uniqueIds.has(paper.id)) {
+        return false;
+      }
+      uniqueIds.add(paper.id);
+      return true;
+    });
     
-    // Sort by relevance score (descending)
+    // Sort papers by relevance
     papers.sort((a, b) => b.relevance_score - a.relevance_score);
     
-    // Take only the top results
-    const topPapers = papers.slice(0, finalResultCount);
-    
-    // If the user is authenticated, save new papers to the database
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      // Use the dev-user ID if no authenticated user
-      const userId = user?.id || 'dev-user';
-      
-      const paperInserts = topPapers.map(paper => ({
-        ...paper,
-        user_id: userId,
-        is_favorite: false,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      }))
-      
-      // Upsert papers (insert if not exists, update if exists)
-      const { error: insertError } = await supabase
-        .from('papers')
-        .upsert(paperInserts, { 
-          onConflict: 'id',
-          ignoreDuplicates: true 
-        })
-      
-      if (insertError) {
-        console.error('Error saving papers to database:', insertError)
-      }
-    } catch (error) {
-      console.error('Error saving papers:', error);
-      // Continue even if saving fails
-    }
-    
-    // Prepare the response with source information
-    const hasSemanticScholarData = papers.some(p => p.source === 'Semantic Scholar');
-    const response = {
-      papers: topPapers,
-      total: papers.length,
-      itemsPerPage: finalResultCount,
-      startIndex: offset,
-      source: hasSemanticScholarData ? 
-        (existingPapers && existingPapers.length > 0 ? 'combined' : 'semantic_scholar') : 
-        'local_only'
-    };
+    // Limit to requested result count
+    papers = papers.slice(0, maxResults);
     
     // Cache the results
-    cacheResults(query, maxResults, response);
+    cacheResults(query, maxResults, { papers, total: papers.length });
     
-    return NextResponse.json(response);
-  } catch (error: any) {
-    console.error('Search error:', error)
+    return NextResponse.json({ papers, total: papers.length });
+    
+  } catch (error) {
+    console.error('Search error:', error);
     return NextResponse.json(
-      { error: error.message || 'Failed to search for papers' },
+      { error: 'Failed to search for papers', details: error instanceof Error ? error.message : 'Unknown error' },
       { status: 500 }
-    )
+    );
   }
 } 

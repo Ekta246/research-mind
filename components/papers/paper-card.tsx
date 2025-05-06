@@ -62,7 +62,7 @@ export function PaperCard({ paper }: PaperCardProps) {
   const handleSummarize = async () => {
     if (summary) {
       // If we already have a summary, just show it again
-      onShowSummary(summary);
+      setSummaryDrawerOpen(true);
       return;
     }
     
@@ -87,7 +87,7 @@ export function PaperCard({ paper }: PaperCardProps) {
       
       const { summary } = await response.json();
       setSummary(summary);
-      onShowSummary(summary);
+      setSummaryDrawerOpen(true);
     } catch (error) {
       console.error('Error generating summary:', error);
       toast({
@@ -191,6 +191,7 @@ export function PaperCard({ paper }: PaperCardProps) {
         isOpen={summaryDrawerOpen}
         onClose={() => setSummaryDrawerOpen(false)}
         paper={paper}
+        customSummary={summary}
       />
     </>
   );

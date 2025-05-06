@@ -10,9 +10,10 @@ interface PaperSummaryDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   paper: Paper;
+  customSummary?: string;
 }
 
-export function PaperSummaryDrawer({ isOpen, onClose, paper }: PaperSummaryDrawerProps) {
+export function PaperSummaryDrawer({ isOpen, onClose, paper, customSummary }: PaperSummaryDrawerProps) {
   const [summary, setSummary] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [isCopied, setIsCopied] = useState(false);
@@ -33,24 +34,45 @@ export function PaperSummaryDrawer({ isOpen, onClose, paper }: PaperSummaryDrawe
       isMounted.current = false;
     };
   }, []);
+
+  // Update summary when customSummary prop changes
+  useEffect(() => {
+    if (customSummary && customSummary.trim() !== "") {
+      setSummary(customSummary);
+    }
+  }, [customSummary]);
   
   // Memoize fetchSummary to prevent recreation on every render
   const fetchSummary = useCallback(async () => {
+    // If we already have a customSummary, use that instead of fetching
+    if (customSummary && customSummary.trim() !== "") {
+      setSummary(customSummary);
+      return;
+    }
+    
     if (!currentPaperId.current || !isMounted.current) return;
     
     setIsLoading(true);
     try {
-      // In a real app, this would fetch from your API
-      // For now, we'll simulate a delay and return mock data
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Make API call to get summary
+      const response = await fetch('/api/papers/summarize', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          paperContent: paper.abstract || `Title: ${paper.title}\nAuthors: ${paper.authors}\nYear: ${paper.year}\nSource: ${paper.source}` 
+        }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to generate summary');
+      }
+      
+      const data = await response.json();
       
       if (isMounted.current) {
-        // Mock summary data
-        setSummary(`This is a mock summary for the paper "${paper.title}". 
-        
-In a real implementation, this would be fetched from your API or generated using AI. The summary would include key points from the paper's abstract and main findings.
-
-For demonstration purposes, we're showing this placeholder text instead of making an actual API call.`);
+        setSummary(data.summary);
       }
     } catch (error) {
       console.error("Error fetching summary:", error);
@@ -66,7 +88,7 @@ For demonstration purposes, we're showing this placeholder text instead of makin
         setIsLoading(false);
       }
     }
-  }, [paper.title, toast]);
+  }, [paper, customSummary, toast]);
   
   // Fetch summary when drawer opens
   useEffect(() => {
