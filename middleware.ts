@@ -1,19 +1,9 @@
-import type { NextRequest } from "next/server"
-import { NextResponse } from "next/server"
-import { updateSession } from "@/utils/supabase/middleware"
+import { NextRequest, NextResponse } from "next/server";
+// import { updateSession } from "@/utils/supabase/middleware"
 
-export async function middleware(request: NextRequest) {
-  try {
-    return await updateSession(request)
-  } catch (error) {
-    console.error("Middleware error:", error)
-    // Return a default response if updateSession fails
-    return NextResponse.next({
-      request: {
-        headers: request.headers,
-      },
-    })
-  }
+export function middleware(request: NextRequest) {
+  // You can add lightweight logic here if needed, but for now, just pass the request through.
+  return NextResponse.next();
 }
 
 export const config = {
