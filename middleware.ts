@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-// import { updateSession } from "@/utils/supabase/middleware"
+
 
 export function middleware(request: NextRequest) {
   // You can add lightweight logic here if needed, but for now, just pass the request through.
